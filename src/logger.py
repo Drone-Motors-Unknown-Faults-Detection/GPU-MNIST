@@ -1,6 +1,7 @@
 import os
 import torch
 import platform
+import subprocess
 from datetime import datetime
 from typing import Optional, Tuple
 
@@ -13,11 +14,27 @@ class TrainingLogger:
         self.epoch_records = []
         self.start_time: datetime = datetime.now()
         self.total_time: float = 0.0
+        self.host_name: str = platform.node() or "unknown"
 
         # 取得裝置資訊，供匯出時寫入
         resolved = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device_type, self.device_info = self._get_device_info(resolved)
         self.device_name = self.device_info
+
+    @staticmethod
+    def _try_get_cpu_brand_string() -> Optional[str]:
+        """
+        嘗試取得較具體的 CPU/晶片名稱（macOS 常可拿到如 Apple M2 / Intel...）。
+        失敗時回傳 None。
+        """
+        if platform.system().lower() != "darwin":
+            return None
+        try:
+            out = subprocess.check_output(["sysctl", "-n", "machdep.cpu.brand_string"], stderr=subprocess.DEVNULL)
+            brand = out.decode("utf-8", errors="ignore").strip()
+            return brand or None
+        except Exception:
+            return None
 
     @staticmethod
     def _get_device_info(device: torch.device) -> Tuple[str, str]:
@@ -27,6 +44,9 @@ class TrainingLogger:
             return "cuda", f"{name} ({total_mem:.2f} GB)"
 
         if device.type == "mps":
+            brand = TrainingLogger._try_get_cpu_brand_string()
+            if brand:
+                return "mps", brand
             machine = platform.machine() or ""
             if platform.system().lower() == "darwin" and machine.lower() == "arm64":
                 return "mps", f"Apple Silicon ({machine})"
@@ -71,6 +91,7 @@ class TrainingLogger:
         lines.append("=" * 50)
         lines.append(title)
         lines.append("=" * 50)
+        lines.append(f"電腦名稱     : {self.host_name}")
         lines.append(f"訓練裝置類型 : {self.device_type.upper()}")
         lines.append(f"裝置名稱     : {self.device_info}")
         lines.append(f"訓練開始時間 : {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
