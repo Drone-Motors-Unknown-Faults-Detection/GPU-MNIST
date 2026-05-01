@@ -6,6 +6,12 @@ from torchvision import datasets, transforms
 import time
 from tqdm import tqdm
 from logger import TrainingLogger
+from device import (
+    get_best_torch_device,
+    get_dataloader_kwargs_for_device,
+    get_device_display_info,
+    get_mac_chip_info,
+)
 
 # 設為 False 可關閉訓練紀錄匯出
 ENABLE_LOGGING = True
@@ -90,13 +96,16 @@ def test(model, test_loader, device):
 
 if __name__ == '__main__':
     # Windows 多行程需要在 __main__ 保護下啟動，否則 DataLoader worker 會重複執行整個腳本
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"使用設備: {device}")
-    if torch.cuda.is_available():
-        print(f"GPU名稱: {torch.cuda.get_device_name(0)}")
-        print(f"GPU可用記憶體: {torch.cuda.get_device_properties(0).total_memory / 1e9:.2f} GB")
+    device = get_best_torch_device(prefer_mps=True)
+    device_type, device_detail = get_device_display_info(device)
+    print(f"使用設備: {device} ({device_type})")
+    if device_detail:
+        print(f"裝置資訊: {device_detail}")
+    chip = get_mac_chip_info()
+    if chip.is_macos:
+        print(f"Mac 晶片辨識: machine={chip.machine}, apple_silicon={chip.is_apple_silicon}")
 
-    logger = TrainingLogger(enabled=ENABLE_LOGGING)
+    logger = TrainingLogger(enabled=ENABLE_LOGGING, device=device)
 
     batch_size = 128
     learning_rate = 0.001
@@ -113,8 +122,9 @@ if __name__ == '__main__':
     test_dataset = datasets.MNIST(root='./data', train=False, transform=transform, download=True)
 
     # pin_memory=True 讓 CPU→GPU 資料傳輸更快；num_workers 使用多行程預載資料
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+    dl_kwargs = get_dataloader_kwargs_for_device(device)
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, **dl_kwargs)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, **dl_kwargs)
 
     model = CNN().to(device)
     criterion = nn.CrossEntropyLoss()

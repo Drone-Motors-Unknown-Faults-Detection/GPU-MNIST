@@ -1,27 +1,38 @@
 import os
 import torch
+import platform
 from datetime import datetime
+from typing import Optional, Tuple
 
 
 class TrainingLogger:
     """將訓練過程紀錄並匯出成 txt 檔。enabled=False 時所有方法皆為 no-op。"""
 
-    def __init__(self, enabled: bool = True):
+    def __init__(self, enabled: bool = True, device: Optional[torch.device] = None):
         self.enabled = enabled
         self.epoch_records = []
         self.start_time: datetime = datetime.now()
         self.total_time: float = 0.0
 
         # 取得裝置資訊，供匯出時寫入
-        if torch.cuda.is_available():
-            self.device_type = "cuda"
-            self.device_name = torch.cuda.get_device_name(0)
+        resolved = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device_type, self.device_info = self._get_device_info(resolved)
+        self.device_name = self.device_info
+
+    @staticmethod
+    def _get_device_info(device: torch.device) -> Tuple[str, str]:
+        if device.type == "cuda" and torch.cuda.is_available():
+            name = torch.cuda.get_device_name(0)
             total_mem = torch.cuda.get_device_properties(0).total_memory / 1e9
-            self.device_info = f"{self.device_name} ({total_mem:.2f} GB)"
-        else:
-            self.device_type = "cpu"
-            self.device_name = "CPU"
-            self.device_info = "CPU"
+            return "cuda", f"{name} ({total_mem:.2f} GB)"
+
+        if device.type == "mps":
+            machine = platform.machine() or ""
+            if platform.system().lower() == "darwin" and machine.lower() == "arm64":
+                return "mps", f"Apple Silicon ({machine})"
+            return "mps", "Apple MPS"
+
+        return "cpu", "CPU"
 
     def start(self):
         """記錄訓練開始時間，應在訓練迴圈前呼叫。"""
