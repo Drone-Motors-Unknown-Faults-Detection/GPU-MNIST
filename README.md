@@ -1,6 +1,8 @@
 # CNN 模型運行 GPU 測試程式
 
-用 CNN / ResNet 模型訓練影像分類，包含 MNIST 手寫數字與 CIFAR-10 彩色圖片，並說明如何讓訓練跑在 GPU 上。
+用 CNN / ResNet 模型訓練影像分類，包含 MNIST 手寫數字、CIFAR-10 與 CIFAR-100 彩色圖片，並說明如何讓訓練跑在 GPU 上。
+
+各模型詳細技術說明請見 [`docs/`](docs/) 資料夾。
 
 ---
 
@@ -93,6 +95,54 @@ python src/cifar10.py
 
 ---
 
+## CIFAR-100（百類彩色圖片分類）
+
+**腳本**：`src/cifar100.py`
+
+### 資料集
+
+- 訓練集：50,000 張 32×32 彩色圖（RGB 3 通道）
+- 測試集：10,000 張
+- 類別：100 類（20 大類，每大類 5 小類），涵蓋動物、交通工具、日常物品等
+
+### 模型架構
+
+比 CIFAR-10 版多一組殘差層，以容納 100 個分類所需的特徵容量：
+
+```
+輸入 (3×32×32)
+→ Conv2d(3→64) + BN + ReLU
+→ Layer1: 2× ResidualBlock(64→64)    →  64×32×32
+→ Layer2: 2× ResidualBlock(64→128)   →  128×16×16
+→ Layer3: 2× ResidualBlock(128→256)  →  256×8×8
+→ Layer4: 2× ResidualBlock(256→512)  →  512×4×4
+→ AdaptiveAvgPool → Dropout(0.3) → Flatten
+→ FC(512→100)  →  100 個類別
+```
+
+### 超參數
+
+| 項目 | 值 |
+|------|----|
+| Batch Size | 128 |
+| Learning Rate | 0.001（CosineAnnealing 衰減） |
+| Epochs | 30 |
+| Optimizer | Adam |
+| LR Scheduler | CosineAnnealingLR(T_max=30) |
+| Dropout | 0.3（FC 前） |
+
+訓練集使用 RandomCrop、RandomHorizontalFlip 與 ColorJitter 資料增強。
+
+### 執行
+
+```bash
+python src/cifar100.py
+```
+
+訓練紀錄輸出至 `logs/CIFAR100/`
+
+---
+
 ## 如何讓模型跑在 GPU 上
 
 本專案已在 `src/device.py` 內集中處理裝置選擇，會依序嘗試：
@@ -160,8 +210,10 @@ DataLoader(..., num_workers=4, pin_memory=True)
 logs/
 ├── MNIST/
 │   └── training_log_20260502_001118.txt
-└── CIFAR10/
-    └── training_log_20260502_012345.txt
+├── CIFAR10/
+│   └── training_log_20260502_012345.txt
+└── CIFAR100/
+    └── training_log_20260502_023456.txt
 ```
 
 報告表頭會包含 **電腦名稱（hostname）**、**完整 Python 版本**（例如 `3.10.12`，與 `platform.python_version()` 一致）、**PyTorch 版本**（`torch.__version__`）、**訓練裝置與裝置名稱**。若實際使用 **NVIDIA GPU（CUDA）** 訓練，會額外寫入 **CUDA 版本**（對應 PyTorch 建置時綁定的 `torch.version.cuda`，與驅動程式顯示的 CUDA 可能略有差異）。
