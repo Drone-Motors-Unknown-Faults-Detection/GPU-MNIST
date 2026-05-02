@@ -145,7 +145,7 @@ if __name__ == '__main__':
 
     batch_size = 256
     learning_rate = 0.001
-    epochs = 100
+    epochs = 20
 
     # 訓練集：RandomCrop + HFlip + ColorJitter；色彩抖動減少模型對特定光照的依賴
     train_transform = transforms.Compose([
