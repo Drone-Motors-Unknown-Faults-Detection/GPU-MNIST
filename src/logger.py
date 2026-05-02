@@ -6,6 +6,19 @@ from datetime import datetime
 from typing import Optional, Tuple
 
 
+def _format_cuda_version_for_report() -> Optional[str]:
+    """
+    回傳 PyTorch 所對應的 CUDA 版本字串（與 torch.version.cuda 一致）。
+    非 CUDA 建置或無法取得時回傳 None。
+    """
+    if not torch.cuda.is_available():
+        return None
+    ver = getattr(torch.version, "cuda", None)
+    if ver is None or str(ver).strip() == "":
+        return None
+    return str(ver).strip()
+
+
 class TrainingLogger:
     """將訓練過程紀錄並匯出成 txt 檔。enabled=False 時所有方法皆為 no-op。"""
 
@@ -15,11 +28,18 @@ class TrainingLogger:
         self.start_time: datetime = datetime.now()
         self.total_time: float = 0.0
         self.host_name: str = platform.node() or "unknown"
+        # 完整 Python 版本，例如 3.10.12（與 `python --version` 主版本號一致）
+        self.python_version: str = platform.python_version()
+        self.torch_version: str = torch.__version__
 
         # 取得裝置資訊，供匯出時寫入
         resolved = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device_type, self.device_info = self._get_device_info(resolved)
         self.device_name = self.device_info
+        # 僅在使用 CUDA GPU 訓練時填入（使用 PyTorch 編譯時綁定的 CUDA 版本）
+        self.cuda_version: Optional[str] = None
+        if resolved.type == "cuda" and torch.cuda.is_available():
+            self.cuda_version = _format_cuda_version_for_report()
 
     @staticmethod
     def _try_get_cpu_brand_string() -> Optional[str]:
@@ -92,8 +112,13 @@ class TrainingLogger:
         lines.append(title)
         lines.append("=" * 50)
         lines.append(f"電腦名稱     : {self.host_name}")
+        lines.append(f"Python 版本  : {self.python_version}")
+        lines.append(f"PyTorch 版本 : {self.torch_version}")
         lines.append(f"訓練裝置類型 : {self.device_type.upper()}")
         lines.append(f"裝置名稱     : {self.device_info}")
+        if self.device_type == "cuda":
+            cuda_line = self.cuda_version if self.cuda_version else "未知（PyTorch 未回報 CUDA 版本）"
+            lines.append(f"CUDA 版本    : {cuda_line}")
         lines.append(f"訓練開始時間 : {self.start_time.strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"總訓練時間   : {self.total_time:.2f} 秒")
         lines.append("")

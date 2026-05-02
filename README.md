@@ -164,6 +164,8 @@ logs/
     └── training_log_20260502_012345.txt
 ```
 
+報告表頭會包含 **電腦名稱（hostname）**、**完整 Python 版本**（例如 `3.10.12`，與 `platform.python_version()` 一致）、**PyTorch 版本**（`torch.__version__`）、**訓練裝置與裝置名稱**。若實際使用 **NVIDIA GPU（CUDA）** 訓練，會額外寫入 **CUDA 版本**（對應 PyTorch 建置時綁定的 `torch.version.cuda`，與驅動程式顯示的 CUDA 可能略有差異）。
+
 透過頂部的 `ENABLE_LOGGING` 旗標控制是否匯出：
 
 ```python
