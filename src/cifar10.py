@@ -60,6 +60,7 @@ class ResNet(nn.Module):
 
         # AdaptiveAvgPool 讓輸出固定為 1×1，不受輸入尺寸影響
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.dropout = nn.Dropout(0.3)
         self.fc = nn.Linear(256, num_classes)
 
     def _make_layer(self, in_channels, out_channels, blocks, stride):
@@ -75,6 +76,7 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)  # 攤平成 (batch, 256)
+        x = self.dropout(x)
         x = self.fc(x)
         return x
 
@@ -143,12 +145,13 @@ if __name__ == '__main__':
 
     batch_size = 256
     learning_rate = 0.001
-    epochs = 100
+    epochs = 20
 
-    # 訓練集加入隨機裁切與水平翻轉做資料增強，提升模型泛化能力
+    # 訓練集：RandomCrop + HFlip + ColorJitter；色彩抖動減少模型對特定光照的依賴
     train_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
         transforms.RandomHorizontalFlip(),
+        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
         transforms.ToTensor(),
         transforms.Normalize((0.4914, 0.4822, 0.4465), (0.2023, 0.1994, 0.2010))
     ])
@@ -169,10 +172,12 @@ if __name__ == '__main__':
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, **dl_kwargs)
 
     model = ResNet(num_classes=10).to(device)
-    criterion = nn.CrossEntropyLoss()
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    # 每 10 個 epoch 將 lr 乘以 0.5，讓後期訓練更穩定收斂
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.5)
+    # label_smoothing 讓模型不過度自信，緩解 train loss 壓到極低但 test acc 停滯的問題
+    criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+    # weight_decay 為 L2 正則化，直接懲罰過大的權重，是對抗 overfitting 最有效的手段之一
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=1e-4)
+    # CosineAnnealingLR 平滑衰減，避免 StepLR 在 epoch 10 造成 test acc 驟降（83%→76%）的情況
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
 
     print("\n開始訓練...\n")
     start_time = time.time()
