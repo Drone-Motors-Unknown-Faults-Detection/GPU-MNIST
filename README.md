@@ -228,10 +228,12 @@ ENABLE_LOGGING = True   # 改為 False 可關閉
 
 ## 環境需求
 
-- Python 3.8+
-- PyTorch
-- torchvision
-- tqdm
+- Python 3.10.12
+- torch 2.0.1
+- torchvision 0.15.2
+- numpy 1.26.4
+- matplotlib 3.10.9
+- tqdm 4.67.3
 
 ```bash
 pip install torch torchvision tqdm
