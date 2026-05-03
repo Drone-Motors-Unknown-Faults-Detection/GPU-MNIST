@@ -1,4 +1,4 @@
-# CNN 模型運行 GPU 測試程式
+# CNN 模型運行 GPU 測試程式 - PyTorch
 
 用 CNN / ResNet 模型訓練影像分類，包含 MNIST 手寫數字、CIFAR-10 與 CIFAR-100 彩色圖片，並說明如何讓訓練跑在 GPU 上。
 

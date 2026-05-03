@@ -1,4 +1,4 @@
-# GPU_Test-CNN — Agent 指引
+# GPU-Learning-PyTorch — Agent 指引
 
 本文件給 **Cursor Agent 、 Claude 與其他協作者** 快速理解專案範圍、程式結構與修改時的注意事項。
 
