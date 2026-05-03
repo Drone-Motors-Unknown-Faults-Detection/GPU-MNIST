@@ -4,9 +4,6 @@ set -e
 
 clear
 
-echo "[INFO] Upgrade PIP Version."
-pip install --upgrade pip
-
 echo "[INFO] Build Virtual Python3 Env."
 python3 -m venv venv
 echo "[INFO] Venv Build Completed"
