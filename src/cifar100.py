@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
+from torchvision.transforms import v2
 import time
 from tqdm import tqdm
 from logger import TrainingLogger
@@ -81,7 +82,7 @@ class ResNet(nn.Module):
         return x
 
 
-def train_epoch(model, train_loader, criterion, optimizer, device):
+def train_epoch(model, train_loader, criterion, optimizer, device, gpu_transform=None):
     """執行一個 epoch 的訓練，回傳平均 loss 與訓練準確率。"""
     model.train()
     total_loss = 0
@@ -91,6 +92,8 @@ def train_epoch(model, train_loader, criterion, optimizer, device):
     for images, labels in tqdm(train_loader, desc="訓練", leave=False):
         images = images.to(device)
         labels = labels.to(device)
+        if gpu_transform is not None:
+            images = gpu_transform(images)
 
         outputs = model(images)
         loss = criterion(outputs, labels)
@@ -149,19 +152,23 @@ if __name__ == '__main__':
     cifar100_mean = (0.5071, 0.4867, 0.4408)
     cifar100_std  = (0.2675, 0.2565, 0.2761)
 
-    # 訓練集：隨機裁切、水平翻轉、色彩抖動，提升對 100 類的泛化能力
+    # 訓練集 CPU 只做最基本的轉換，augmentation 搬到 GPU 做
     train_transform = transforms.Compose([
-        transforms.RandomCrop(32, padding=4),
-        transforms.RandomHorizontalFlip(),
-        transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
         transforms.ToTensor(),
-        transforms.Normalize(cifar100_mean, cifar100_std),
     ])
 
     # 測試集只做標準化
     test_transform = transforms.Compose([
         transforms.ToTensor(),
         transforms.Normalize(cifar100_mean, cifar100_std),
+    ])
+
+    # GPU augmentation：在 GPU tensor 上做，省掉 CPU worker 的瓶頸
+    gpu_train_transform = v2.Compose([
+        v2.RandomCrop(32, padding=4),
+        v2.RandomHorizontalFlip(),
+        v2.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
+        v2.Normalize(cifar100_mean, cifar100_std),
     ])
 
     print("\n加載 CIFAR-100 數據...")
@@ -183,7 +190,7 @@ if __name__ == '__main__':
     logger.start()
 
     for epoch in range(epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, gpu_transform=gpu_train_transform)
         test_acc = test(model, test_loader, device)
         scheduler.step()
         elapsed = time.time() - start_time
