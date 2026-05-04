@@ -45,24 +45,29 @@ class CNN(nn.Module):
         return x
 
 
-def train_epoch(model, train_loader, criterion, optimizer, device):
+def train_epoch(model, train_loader, criterion, optimizer, device, scaler=None):
     """執行一個 epoch 的訓練，回傳平均 loss 與訓練準確率。"""
     model.train()
     total_loss = 0
     correct = 0
     total = 0
 
-    for images, labels in tqdm(train_loader, desc="訓練"):
-        images = images.to(device)
-        labels = labels.to(device)
+    for images, labels in tqdm(train_loader, desc="訓練", leave=False):
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
 
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(scaler is not None)):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
 
-        # 清除上一步殘留的梯度，再反向傳播更新權重
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
@@ -80,12 +85,13 @@ def test(model, test_loader, device):
     correct = 0
     total = 0
 
-    with torch.no_grad():  # 推論不需要計算梯度，節省記憶體
-        for images, labels in tqdm(test_loader, desc="測試"):
-            images = images.to(device)
-            labels = labels.to(device)
+    with torch.no_grad():
+        for images, labels in tqdm(test_loader, desc="測試", leave=False):
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
 
-            outputs = model(images)
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(device.type == 'cuda')):
+                outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
@@ -97,6 +103,15 @@ def test(model, test_loader, device):
 if __name__ == '__main__':
     # Windows 多行程需要在 __main__ 保護下啟動，否則 DataLoader worker 會重複執行整個腳本
     device = get_best_torch_device(prefer_mps=True)
+
+    if device.type == "cpu":
+        import os
+        cpu_threads = max(1, os.cpu_count() // 2)
+        torch.set_num_threads(cpu_threads)
+        torch.set_num_interop_threads(2)
+    elif device.type == "cuda":
+        # 讓 cuDNN 自動挑選最快的卷積演算法（輸入尺寸固定時有效）
+        torch.backends.cudnn.benchmark = True
     device_type, device_detail = get_device_display_info(device)
     print(f"使用設備: {device} ({device_type})")
     if device_detail:
@@ -129,13 +144,14 @@ if __name__ == '__main__':
     model = CNN().to(device)
     criterion = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
 
     print("\n開始訓練...\n")
     start_time = time.time()
     logger.start()
 
     for epoch in range(epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scaler=scaler)
         test_acc = test(model, test_loader, device)
         elapsed = time.time() - start_time
 

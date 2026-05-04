@@ -82,7 +82,7 @@ class ResNet(nn.Module):
         return x
 
 
-def train_epoch(model, train_loader, criterion, optimizer, device, gpu_transform=None):
+def train_epoch(model, train_loader, criterion, optimizer, device, scaler=None, gpu_transform=None):
     """執行一個 epoch 的訓練，回傳平均 loss 與訓練準確率。"""
     model.train()
     total_loss = 0
@@ -90,17 +90,23 @@ def train_epoch(model, train_loader, criterion, optimizer, device, gpu_transform
     total = 0
 
     for images, labels in tqdm(train_loader, desc="訓練", leave=False):
-        images = images.to(device)
-        labels = labels.to(device)
+        images = images.to(device, non_blocking=True)
+        labels = labels.to(device, non_blocking=True)
         if gpu_transform is not None:
             images = gpu_transform(images)
 
-        outputs = model(images)
-        loss = criterion(outputs, labels)
+        with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(scaler is not None)):
+            outputs = model(images)
+            loss = criterion(outputs, labels)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        optimizer.zero_grad(set_to_none=True)
+        if scaler is not None:
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+        else:
+            loss.backward()
+            optimizer.step()
 
         total_loss += loss.item()
         _, predicted = torch.max(outputs.data, 1)
@@ -120,10 +126,11 @@ def test(model, test_loader, device):
 
     with torch.no_grad():
         for images, labels in tqdm(test_loader, desc="測試", leave=False):
-            images = images.to(device)
-            labels = labels.to(device)
+            images = images.to(device, non_blocking=True)
+            labels = labels.to(device, non_blocking=True)
 
-            outputs = model(images)
+            with torch.autocast(device_type=device.type, dtype=torch.float16, enabled=(device.type == 'cuda')):
+                outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
             correct += (predicted == labels).sum().item()
             total += labels.size(0)
@@ -134,6 +141,8 @@ def test(model, test_loader, device):
 
 if __name__ == '__main__':
     device = get_best_torch_device(prefer_mps=True)
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = True
     device_type, device_detail = get_device_display_info(device)
     print(f"使用設備: {device} ({device_type})")
     if device_detail:
@@ -184,13 +193,14 @@ if __name__ == '__main__':
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     # CosineAnnealingLR 讓學習率平滑衰減至接近 0，比 StepLR 在多類別任務上收斂更穩定
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+    scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
 
     print("\n開始訓練...\n")
     start_time = time.time()
     logger.start()
 
     for epoch in range(epochs):
-        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, gpu_transform=gpu_train_transform)
+        train_loss, train_acc = train_epoch(model, train_loader, criterion, optimizer, device, scaler=scaler, gpu_transform=gpu_train_transform)
         test_acc = test(model, test_loader, device)
         scheduler.step()
         elapsed = time.time() - start_time

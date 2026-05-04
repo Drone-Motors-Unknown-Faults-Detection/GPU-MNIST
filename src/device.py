@@ -76,7 +76,7 @@ def get_dataloader_kwargs_for_device(device: torch.device) -> Dict[str, Any]:
     """
     if device.type == "cuda":
         if _IS_WINDOWS:
-            return {"num_workers": 0, "pin_memory": True}
+            return {"num_workers": 2, "pin_memory": True, "persistent_workers": True}
         return {"num_workers": 4, "pin_memory": True, "persistent_workers": True}
     if device.type == "mps":
         return {"num_workers": 0, "pin_memory": False}
